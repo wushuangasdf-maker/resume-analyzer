@@ -40,6 +40,7 @@ def main():
             "summary": data.get("summary", "")
         }
         result = analyze_resume_v2(result)
+        print("test git")
         print("\n================ 优化后分析结果 ================\n")
         print(json.dumps(result, ensure_ascii=False, indent=4))
 
