@@ -1,5 +1,6 @@
 from  app.services.llm_service import chat
 import json
+from app.utils.json_utils import safe_json_loads
 #用于文本的整理，让ai更加精确的发挥
 def llm_analyze(user_text,jd_text=None):
     prompt = f"""
@@ -21,12 +22,13 @@ def llm_analyze(user_text,jd_text=None):
     if jd_text:
         prompt +=f"\n岗位描述:\n{jd_text}"
     result = chat(prompt)
-    try:
-        return json.loads(result)
-    except:
-        return {
-            "skills": [],
-            "projects": [],
-            "jd_skills": [],
-            "summary": result
-        }
+    fallback = {
+        "skills": [],
+        "missing_skills": [],
+        "extra_skills": [],
+        "projects": [],
+        "education": "",
+        "experience": "",
+        "score": 0
+    }
+    return safe_json_loads(result,fallback=fallback)
