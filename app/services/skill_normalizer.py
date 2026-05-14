@@ -4,9 +4,12 @@ from app.services.llm_service import chat
 from app.config.skill_alias import skill_alias
 from app.utils.skill_cache import load_cache,save_cache
 from app.utils.json_utils import safe_json_loads
+from app.utils.tracer import trace
 
-
+@trace
 def normalize_local_skill(skills):
+    if not  skills:
+        return [],[]
     local_normal = set()
     unknow = []
     for skill in skills:
@@ -17,25 +20,29 @@ def normalize_local_skill(skills):
             unknow.append(skill)
     return  list(local_normal),unknow
 
+@trace
 def normalize_ai_skill(unkonw_skill):
-   if not  unkonw_skill:
-       return {}
-   normalized_input=[]
-   for skill in unkonw_skill:
-       if skill and skill.strip():
-           normalized_input.append(skill.lower().strip())
+   if not unkonw_skill:
+       return []
+   normalized_input=[
+       s.lower().strip()
+       for s in unkonw_skill
+       if s and s.strip()
+   ]
    if not normalized_input:
        return {}
-   cache=load_cache()
-   results={}
-   uncached_skills=[]
+   cache = load_cache() or {}
+   results = {}
+   uncached_skills = []
+
+
    for skill in normalized_input:
        if skill in cache:
            results[skill]= cache[skill]
        else:
            uncached_skills.append(skill)
    if not uncached_skills:
-       return results
+       return list(results.values())
    prompt = f"""
    请将以下技术技能名称标准化，并返回 JSON 对象。
 
@@ -58,24 +65,33 @@ def normalize_ai_skill(unkonw_skill):
    {json.dumps(uncached_skills,ensure_ascii=False)}
    """
    try:
-       response=cache(prompt).strip()
+       response=cache(prompt)
+       response = (response or "").strip()
        fallback={skill:skill for skill in unkonw_skill}
        ai_result=safe_json_loads(response,fallback=fallback)
-       for original,normalized in ai_result.items():
-           normalized_value=str(normalized).lower().strip()
-           cache[original] = normalized_value
-           results[original] = normalized_value
+       if isinstance(ai_result, dict):
+           for k, v in ai_result.items():
+               v = str(v).lower().strip()
+               cache[k] = v
+               results[k] = v
        save_cache(cache)
    except Exception:
        for skill in unkonw_skill:
            results[skill]=skill
-   return  results
+   return  list(results.values())
 
+@trace
 def normalize_integrate_skill(skills):
+    skills = skills or []
     local_skills,unknown_skills=normalize_local_skill(skills)
-    ai_skills =[]
-    for skill in unknown_skills:
-        ai_result=normalize_ai_skill(skill)
-        ai_skills.append(ai_result)
+    ai_mapping =normalize_ai_skill(unknown_skills)or {}
+    if not isinstance(ai_mapping, dict):
+        ai_mapping = {}
+    ai_skills = [
+        str(v).strip().lower()
+        for v in ai_mapping.values()
+        if v
+    ]
+    local_skills = local_skills or []
     final_skills=set(local_skills+ai_skills)
     return list(final_skills)

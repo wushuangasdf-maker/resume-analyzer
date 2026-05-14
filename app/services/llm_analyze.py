@@ -31,4 +31,5 @@ def llm_analyze(user_text,jd_text=None):
         "experience": "",
         "score": 0
     }
-    return safe_json_loads(result,fallback=fallback)
+    data= safe_json_loads(result,fallback=fallback)
+    return data

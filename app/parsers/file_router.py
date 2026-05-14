@@ -11,4 +11,4 @@ def parse_resume(file_path):
     elif file_path.endswith((".png",".jpg",".jpeg")):
         return read_image(file_path)
     else:
-        return {"error":"仅支持PDF,DOCX格式和图片"}
+        raise ValueError("仅支持PDF,DOCX和图片")

@@ -1,5 +1,5 @@
 import json
-
+import traceback
 from app.services.llm_service import chat
 from app.utils.json_utils import clean_json,safe_json_loads
 
@@ -50,6 +50,7 @@ def analyze_resume_structured(data):
     return safe_json_loads(response, fallback=fallback)
 #综合引用
 def analyze_resume_v2(text):
-
+    if not isinstance(text,str):
+        text=str(text)
     result = analyze_resume_structured(text)
     return  result

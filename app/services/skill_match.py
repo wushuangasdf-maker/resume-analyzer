@@ -1,9 +1,12 @@
 from app.config.skills_weight import WEIGHT
 from app.config.skills_critical import CRITICAL_SKILLS
+from app.utils.tracer import trace
+import traceback
 #经行职业匹配度评分,外加权重
+@trace
 def calculate_score(user_skills,job_skills,weights=None):
-    user_set=set(user_skills)
-    job_set=set(job_skills)
+    user_set=set(user_skills) or []
+    job_set=set(job_skills) or []
     if not job_set:
         return 0.0
     if weights is None:
@@ -20,6 +23,7 @@ def calculate_score(user_skills,job_skills,weights=None):
     score = matched_weight / total_weight*100
     return round(score,2)
 #经行核心技能的覆盖率计算
+@trace
 def critical_coverage(user_skills,critical_skills=None):
     if critical_skills in None:
         critical_skills=CRITICAL_SKILLS
@@ -33,6 +37,7 @@ def critical_coverage(user_skills,critical_skills=None):
     return round(score,2)
 
 #技能的是否匹配的提示
+@trace
 def skills_report(user_skills,job_skills):
     user_set = set(user_skills)
     job_set = set(job_skills)
@@ -42,6 +47,7 @@ def skills_report(user_skills,job_skills):
     extra = sorted(list(user_set - job_set))
     return matched,missing,extra
 #计算最终适配度
+@trace
 def final_score(user_skills, job_skills, weights=None, critical_skills=None):
     skill_score=calculate_score(user_skills,job_skills,weights)
     critical_score = critical_coverage(user_skills, critical_skills)

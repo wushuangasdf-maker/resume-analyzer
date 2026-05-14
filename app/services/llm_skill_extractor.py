@@ -1,6 +1,4 @@
 import json
-from http.client import responses
-
 from app.services.llm_service import chat
 
 def llm_extract_skills(text):
@@ -13,9 +11,11 @@ def llm_extract_skills(text):
     text:
     {text}
     """
-    responses =chat(prompt)
     try:
-        skills=json.loads(responses)
+        responses =chat(prompt)
+        if not  responses:
+            return []
+        skills = json.loads(responses)
         if isinstance(skills,list):
             return skills
     except Exception:
