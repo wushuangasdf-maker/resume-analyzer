@@ -31,12 +31,10 @@ def normalize_ai_skill(unkonw_skill):
        if s and s.strip()
    ]
    if not normalized_input:
-       return {}
+       return []
    cache = load_cache() or {}
    results = {}
    uncached_skills = []
-
-
    for skill in normalized_input:
        if skill in cache:
            results[skill]= cache[skill]
@@ -66,9 +64,9 @@ def normalize_ai_skill(unkonw_skill):
    {json.dumps(uncached_skills,ensure_ascii=False)}
    """
    try:
-       response=cache(prompt)
+       response=chat(prompt)
        response = (response or "").strip()
-       fallback={skill:skill for skill in unkonw_skill}
+       fallback={skill:skill for skill in uncached_skills}
        ai_result=safe_json_loads(response,fallback=fallback)
        if isinstance(ai_result, dict):
            for k, v in ai_result.items():
@@ -77,7 +75,7 @@ def normalize_ai_skill(unkonw_skill):
                results[k] = v
        save_cache(cache)
    except Exception:
-       for skill in unkonw_skill:
+       for skill in uncached_skills:
            results[skill]=skill
    return  list(results.values())
 
