@@ -6,6 +6,7 @@ from app.utils.skill_cache import load_cache,save_cache
 from app.utils.json_utils import safe_json_loads
 from app.utils.tracer import trace
 
+
 @trace
 def normalize_local_skill(skills):
     if not  skills:
@@ -83,6 +84,7 @@ def normalize_ai_skill(unkonw_skill):
 @trace
 def normalize_integrate_skill(skills):
     skills = skills or []
+
     local_skills,unknown_skills=normalize_local_skill(skills)
     ai_mapping =normalize_ai_skill(unknown_skills)or {}
     if not isinstance(ai_mapping, dict):

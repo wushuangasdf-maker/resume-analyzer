@@ -7,6 +7,8 @@ from app.utils.tracer import trace
 @trace
 def extract_keywords(text):
     raw_skills=llm_extract_skills(text)
+    if not raw_skills:
+        return []
     normalized=normalize_integrate_skill(raw_skills)
     filtered=[skill for  skill in normalized if skill in skill_keywords]
     return sorted(set(filtered))
