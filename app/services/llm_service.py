@@ -1,14 +1,24 @@
 from openai import OpenAI
-import os
 from dotenv import load_dotenv
+import os
+
+from openai.lib.azure import API_KEY_SENTINEL
+
 load_dotenv()
 
+Api_key=os.getenv("DEEPSEEK_API_KEY")
+if not Api_key:
+    raise ValueError("未找到API_KEY，请去检查.env文件")
+
 client=OpenAI(
-    api_key=os.getenv("DEEPSEEK_API_KEY"),
-    base_url="https://api.deepseek.com/v1"
+    api_key=Api_key,
+    base_url="https://api.deepseek.com/v1",
+    timeout=60
 )
 
 def chat(prompt):
+    if not prompt or not prompt.strip():
+        return ""
     response = client.chat.completions.create(
         model="deepseek-chat",
         messages=[
@@ -16,4 +26,5 @@ def chat(prompt):
         ],
         temperature=0
     )
-    return response.choices[0].message.content
+    content=response.choices[0].message.content
+    return content.strip() if content else ""
