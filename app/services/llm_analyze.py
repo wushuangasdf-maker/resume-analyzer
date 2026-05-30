@@ -1,7 +1,7 @@
 from  app.services.llm_service import chat
 import json
 from app.services.project_extractor import extract_projects
-from app.utils.json_utils import safe_json_loads
+from app.utils.json_utils import safe_json_loads,clean_json
 #用于文本的整理，让ai更加精确的发挥
 def llm_analyze(user_text,jd_text=None):
   try:
@@ -36,6 +36,7 @@ def llm_analyze(user_text,jd_text=None):
         "experience": "",
         "score": 0
     }
+    data =clean_json(result)
     data= safe_json_loads(result,fallback=fallback)
     for key,default in fallback.items():
         data.setdefault(key,default)

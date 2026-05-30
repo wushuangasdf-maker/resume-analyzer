@@ -3,7 +3,7 @@ import json
 from app.services.llm_service import chat
 from app.config.skill_alias import skill_alias
 from app.utils.skill_cache import load_cache,save_cache
-from app.utils.json_utils import safe_json_loads
+from app.utils.json_utils import safe_json_loads,clean_json
 from app.utils.tracer import trace
 
 
@@ -67,6 +67,7 @@ def normalize_ai_skill(unkonw_skill):
        response=chat(prompt)
        response = (response or "").strip()
        fallback={skill:skill for skill in uncached_skills}
+       ai_result=clean_json(response)
        ai_result=safe_json_loads(response,fallback=fallback)
        if isinstance(ai_result, dict):
            for k, v in ai_result.items():

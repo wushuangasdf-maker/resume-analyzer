@@ -1,34 +1,36 @@
 import json
 import re
+import logging
 
+logger = logging.getLogger(__name__)
 
 def clean_json(text):
-    text = text.replace("```json", "").replace("```", "").strip()
-
-    start = text.find("{")
-    end = text.rfind("}")
-
-    if start != -1 and end != -1:
-        text = text[start:end+1]
-
-    return text
+    if not text:
+        return ""
+    text = re.sub(r"```json", "", text)
+    text = re.sub(r"```", "", text)
+    match = re.search(r"\{.*\}",text)
+    if match:
+        return match.group().strip()
+    return ""
 
 def safe_json_loads(response,fallback=None):
     if fallback is None:
         fallback={}
-    if not response:
-        return fallback
     try:
-        response =str(response).strip()
-        response = re.sub(r"^```json\s*", "", response)
-        response = re.sub(r"^```\s*", "", response)
-        response = re.sub(r"\s*```$", "", response)
-        match = re.search(r"\{.*\}", response, re.S)
-        if match:
-            response=match.group()
-        data =json.loads(response)
+        cleaned = clean_json(response)
+        if not cleaned:
+            logger.warning("JSON clean failed")
+            return fallback
+        data = json.loads(cleaned)
         if isinstance(data,dict):
             return data
+        logger.warning("JSON is not dict")
         return fallback
-    except Exception:
+    except json.JSONDecodeError as e:
+        logger.warning(f"JSON decode error:{e}")
+        logger.warning(f"Response:{response}")
+        return fallback
+    except Exception as e:
+        logger.exception(f"Unexpected error: {e}")
         return fallback

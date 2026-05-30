@@ -48,6 +48,7 @@ def analyze_resume_structured(data):
         if not response:
             return fallback
         # 5. JSON 安全解析
+        result = clean_json(response)
         result = safe_json_loads(response, fallback=fallback)
 
         if not isinstance(result, dict):
