@@ -1,3 +1,4 @@
+
 import re
 Max_length = 6000
 
@@ -19,7 +20,7 @@ def clean_text_up(text):
     return text
 
 def compress_text(text):
-    text = clean_text(text)
+    text = clean_text_up(text)
     if len(text)<=Max_length:
         return text
     head = text[:4000]
