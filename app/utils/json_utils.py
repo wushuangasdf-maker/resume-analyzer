@@ -4,14 +4,72 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+def _extract_balanced(text, open_char, close_char):
+    """提取第一个完整的花括号/方括号块，正确处理嵌套。"""
+    start = text.find(open_char)
+    if start == -1:
+        return None
+    depth = 0
+    for i in range(start, len(text)):
+        ch = text[i]
+        if ch == open_char:
+            depth += 1
+        elif ch == close_char:
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return None
+
+
 def clean_json(text):
     if not text:
         return ""
-    text = re.sub(r"```json", "", text)
-    text = re.sub(r"```", "", text)
-    match = re.search(r"\{.*\}",text)
+    if not isinstance(text, str):
+        if isinstance(text, (dict, list)):
+            # 用 json.dumps 保真转换，避免 str() 产生单引号 Python repr
+            text = json.dumps(text, ensure_ascii=False)
+        else:
+            text = str(text)
+
+    # 1️⃣ 优先提取 ```json ... ```
+    match = re.search(r"```json\s*(.*?)```", text, re.S)
     if match:
-        return match.group().strip()
+        inner = match.group(1).strip()
+        # 从 code block 内部提取 JSON 对象/数组
+        obj = _extract_balanced(inner, '{', '}')
+        if obj:
+            return obj
+        arr = _extract_balanced(inner, '[', ']')
+        if arr:
+            return arr
+        return inner
+
+    # 2️⃣ 再提取普通 ``` ... ```
+    match = re.search(r"```\s*(.*?)```", text, re.S)
+    if match:
+        inner = match.group(1).strip()
+        obj = _extract_balanced(inner, '{', '}')
+        if obj:
+            return obj
+        arr = _extract_balanced(inner, '[', ']')
+        if arr:
+            return arr
+        return inner
+
+    # 3️⃣ 用括号计数提取完整 JSON 对象（正确处理嵌套）
+    obj = _extract_balanced(text, '{', '}')
+    if obj:
+        return obj.strip()
+
+    # 4️⃣ 尝试匹配 JSON 数组
+    arr = _extract_balanced(text, '[', ']')
+    if arr:
+        return arr.strip()
+
+    # 5️⃣ debug 信息
+    print("❌ JSON clean failed raw output:")
+    print(repr(text))
+
     return ""
 
 def safe_json_loads(response,fallback=None):

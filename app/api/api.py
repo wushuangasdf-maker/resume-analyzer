@@ -9,8 +9,6 @@ router=APIRouter()
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR,exist_ok=True)
-#日志配置
-logging.basicConfig(level=logging.INFO)
 
 @router.get("/ping")
 def ping():
@@ -42,7 +40,7 @@ async def analyze(file:UploadFile=File(...)):
         result=resume_analyzer.analyze_resume_v2(text)
         logging.info("AI分析完毕")
         return {
-            "code":500,
+            "code":200,
             "message":"success",
             "data":
             {

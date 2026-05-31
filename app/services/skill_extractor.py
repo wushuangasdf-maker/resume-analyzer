@@ -2,14 +2,15 @@ import re
 from app.config.skill_pool import skill_keywords
 from app.services.llm_skill_extractor import llm_extract_skills
 from app.services.skill_normalizer import normalize_integrate_skill
-from app.utils.tracer import trace
+from app.utils.decorators import trace
 from app.utils.json_utils import safe_json_loads,clean_json
 #经行文本技能的提取，根据Skill_keywords经行提取（目前情况
 @trace
 def extract_keywords(text):
     raw_skills=llm_extract_skills(text)
-    raw_skills=clean_json(text)
-    raw_skills=safe_json_loads(raw_skills)
+    # llm_extract_skills 已返回解析好的 list，只有非 list 才尝试 JSON 解析
+    if not isinstance(raw_skills, list):
+        raw_skills=safe_json_loads(raw_skills,fallback=[])
     if not raw_skills:
         return []
     normalized=normalize_integrate_skill(raw_skills)

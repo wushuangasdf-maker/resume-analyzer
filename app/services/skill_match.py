@@ -2,7 +2,7 @@
 
 from app.config.skills_weight import WEIGHT
 from app.config.skills_critical import CRITICAL_SKILLS
-from app.utils.tracer import trace
+from app.utils.decorators import trace
 import traceback
 #经行职业匹配度评分,外加权重
 @trace

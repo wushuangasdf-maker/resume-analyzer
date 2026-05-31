@@ -19,6 +19,8 @@ app.include_router(
     tags=["Resume Analyzer"]
 )
 
+
+
 def main():
     try:
         file_path = input("输入简历文件所在位置：")
@@ -30,29 +32,32 @@ def main():
 
         jd_text = parse_resume(jd_input) if jd_input else None
         # 1️⃣ 只调用一次 LLM（核心升级点）
-        data = llm_analyze(resume_text, jd_text)or[]
+        data = llm_analyze(resume_text, jd_text)
+        if not isinstance(data, dict):
+            print("⚠️ llm_analyze 返回异常类型，使用空字典兜底")
+            data = {}
         #经行的兜底机制
         if not data.get("skills"):
             data["skills"] = extract_keywords(resume_text)
-        if not  data.get("jd_skills"):
+        if not data.get("jd_skills") and jd_text:
             data["jd_skills"] = extract_keywords(jd_text)
 
         # 2️⃣ 本地处理
-        skills = normalize_integrate_skill(data.get("skills")or[])
-        jd_skills = normalize_integrate_skill(data.get("jd_skills")or[])
+        skills = normalize_integrate_skill(data.get("skills")or[ ])
+        jd_skills = normalize_integrate_skill(data.get("jd_skills")or[ ])
         # 3️⃣ 评分
-        match, miss, extra = skills_report(skills, jd_skills) if jd_skills else ([], [], [])
+        match, miss, extra = skills_report(skills, jd_skills) if jd_skills else ([ ], [ ], [ ])
         score = final_score(skills, jd_skills,miss) if jd_skills else None
         # 4️⃣ 输出结果
         result = {
             "skills": skills,
-            "projects": data["projects"]or [],
+            "projects": data.get("projects") or [ ],
             "jd_skills": jd_skills,
             "score": score,
             "match": match,
             "missing": miss,
             "extra": extra,
-            "summary": data.get("summary", "")or ""
+            "summary": data.get("summary", " ")or " "
         }
         result = analyze_resume_v2(result)
         print("\n================ 优化后分析结果 ================\n")

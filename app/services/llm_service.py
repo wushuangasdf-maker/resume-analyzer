@@ -2,8 +2,6 @@ from openai import OpenAI
 from dotenv import load_dotenv
 import os
 
-from openai.lib.azure import API_KEY_SENTINEL
-
 load_dotenv()
 
 Api_key=os.getenv("DEEPSEEK_API_KEY")

@@ -21,7 +21,7 @@ def extract_projects(text):
             if len(cleaned)>120:
                 continue
             key = cleaned.lower()
-            if key in seen:
+            if key not in seen:
                 seen.add(key)
                 projects.append(cleaned)
             if len(projects) >= 5:

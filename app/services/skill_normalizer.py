@@ -4,12 +4,12 @@ from app.services.llm_service import chat
 from app.config.skill_alias import skill_alias
 from app.utils.skill_cache import load_cache,save_cache
 from app.utils.json_utils import safe_json_loads,clean_json
-from app.utils.tracer import trace
-
+from app.utils.decorators import trace
+from app.utils.ensure import ensure_str
 
 @trace
 def normalize_local_skill(skills):
-    if not  skills:
+    if not skills:
         return [],[]
     local_normal = set()
     unknow = []
@@ -41,7 +41,7 @@ def normalize_ai_skill(unkonw_skill):
        else:
            uncached_skills.append(skill)
    if not uncached_skills:
-       return list(results.values())
+       return list(results.values())# 原始技能 -> 标准化名称
    prompt = f"""
    请将以下技术技能名称标准化，并返回 JSON 对象。
 
@@ -67,7 +67,7 @@ def normalize_ai_skill(unkonw_skill):
        response=chat(prompt)
        response = (response or "").strip()
        fallback={skill:skill for skill in uncached_skills}
-       ai_result=clean_json(response)
+       response=ensure_str(response)
        ai_result=safe_json_loads(response,fallback=fallback)
        if isinstance(ai_result, dict):
            for k, v in ai_result.items():
@@ -85,14 +85,21 @@ def normalize_integrate_skill(skills):
     skills = skills or []
 
     local_skills,unknown_skills=normalize_local_skill(skills)
-    ai_mapping =normalize_ai_skill(unknown_skills)or {}
-    if not isinstance(ai_mapping, dict):
-        ai_mapping = {}
-    ai_skills = [
-        str(v).strip().lower()
-        for v in ai_mapping.values()
-        if v
-    ]
+    # normalize_ai_skill 返回的是 list，不是 dict
+    ai_skills = normalize_ai_skill(unknown_skills) or []
+    if isinstance(ai_skills, dict):
+        # 兼容旧行为：如果是 dict，提取 values
+        ai_skills = [
+            str(v).strip().lower()
+            for v in ai_skills.values()
+            if v
+        ]
+    else:
+        ai_skills = [
+            str(v).strip().lower()
+            for v in ai_skills
+            if v
+        ]
     local_skills = local_skills or []
     final_skills=set(local_skills+ai_skills)
     return list(final_skills)
