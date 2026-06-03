@@ -1,0 +1,38 @@
+# ============================================================
+# AI 简历分析器 — 服务编排
+# ============================================================
+# 启动:  docker compose up -d
+# 停止:  docker compose down
+# 重建:  docker compose up -d --build
+# 日志:  docker compose logs -f
+# ============================================================
+
+services:
+
+  # ---- FastAPI 后端 ----
+  api:
+    build: .
+    container_name: resume-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+    volumes:
+      - ./uploads:/app/uploads          # 上传文件持久化（可选）
+    command: uvicorn app.api.main:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
+
+  # ---- Streamlit 前端 ----
+  web:
+    build: .
+    container_name: resume-web
+    ports:
+      - "8501:8501"
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+    volumes:
+      - ./uploads:/app/uploads
+    command: streamlit run app/web/appweb.py --server.port 8501 --server.address 0.0.0.0
+    restart: unless-stopped
+    depends_on:
+      - api
