@@ -2,25 +2,26 @@ AI 简历分析器 (AI Resume Analyzer)
 简介：基于 LLM 的智能简历分析系统，支持多格式简历解析、JD（职位描述）对比、技能匹配度评分，并生成深度分析报告。
 
 功能概览
-1.多格式解析:支持 PDF、DOCX、PNG、JPG 格式的简历文件，自动提取文本（图片使用 OCR）
-2.JD对比分析:可上传职位描述文件，对比简历与岗位要求的技能匹配度
-3.智能技能抽取:LLM + 本地技能库双重提取，确保技能识别全面准确.
-4.加权匹配评分：综合技能匹配度（55%）、核心覆盖率（25%）、额外技能奖励（10%）、缺失惩罚（10%）四维评分，避免出现某个权重过大或过小出现的分数失真情况
-5.深度分析报告：AI生成结构化报告，包含综合评分、核心优势、待提升项、推荐岗位、提升建议，能够全面的发现简历和这个岗位要求的匹配度，进而经行简历的修改和自身能力的补充
-6.双界面选择：FastAPI REST API（适合集成） + Streamlit Web UI（适合直接使用）
-7.流式输出：Web 界面实时流式展示 AI 分析过程，可以更加直观的看出ai分析过程，进而减少等待生成过程中的枯燥感。
-8.安全加固：文件类型校验、大小限制、路径遍历防护、CORS 白名单。
-9.Docker 部署：非 root 用户运行，一键编排启动，体现项目可以快速部署的能力。
+1. 多格式解析: 支持 PDF、DOCX、PNG、JPG 格式的简历文件，自动提取文本（图片使用 OCR）
+2. JD 对比分析: 可上传职位描述文件，对比简历与岗位要求的技能匹配度
+3. 智能技能抽取: LLM 结构化抽取 + 本地技能库兜底，确保技能识别全面准确
+4. 技能归一化: 别名映射 + AI 缓存双重归一路径，将技能名称标准化
+5. 加权匹配评分: 技能匹配度 + 核心覆盖率 + 额外技能奖励 - 缺失惩罚，多维评分避免失真
+6. 深度分析报告: AI 生成 Markdown 结构化报告，包含综合评分、核心优势、待提升项、推荐岗位、提升建议、技能摘要六大板块
+7. 双界面选择: FastAPI REST API（适合集成）+ Streamlit Web UI（适合直接使用）
+8. 流式输出: Web 界面实时流式展示 AI 分析过程，Markdown 逐字渲染，减少等待枯燥感
+9. 安全加固: 文件类型校验、大小限制、路径遍历防护、CORS 白名单、非 root 容器运行
+10. Docker 部署: 前后端分离编排，一键启动，非 root 用户运行
 
 项目结构
 ```
 resume-analyzer/
 ├── app/
 │   ├── api/
-│   │   ├── main.py              # FastAPI 应用入口（新版，完整流水线）
+│   │   ├── main.py              # FastAPI 应用入口（v2.0，完整流水线）
 │   │   └── api.py               # 旧版 API 端点（兼容保留）
 │   ├── config/
-│   │   ├── skill_pool.py        # 技能关键词库
+│   │   ├── skill_pool.py        # 技能关键词库（自动从 alias+weight+critical 推导）
 │   │   ├── skill_alias.py       # 技能别名映射
 │   │   ├── skills_weight.py     # 技能权重配置
 │   │   └── skills_critical.py   # 核心技能配置
@@ -31,38 +32,39 @@ resume-analyzer/
 │   │   ├── image_parser.py      # 图片 OCR 解析
 │   │   └── text_clean.py        # 文本清洗
 │   ├── services/
-│   │   ├── llm_service.py       # LLM 调用（DeepSeek）
-│   │   ├── llm_analyze.py       # LLM 结构化抽取
+│   │   ├── llm_service.py       # LLM 调用（DeepSeek，含 chat + chat_stream）
+│   │   ├── llm_analyze.py       # LLM 结构化抽取（技能/项目/教育/经验）
 │   │   ├── llm_skill_extractor.py # AI 技能提取
-│   │   ├── skill_extractor.py   # 技能提取整合
-│   │   ├── skill_normalizer.py  # 技能归一化
-│   │   ├── skill_match.py       # 技能匹配与评分
+│   │   ├── skill_extractor.py   # 技能提取整合（LLM + 本地规则）
+│   │   ├── skill_normalizer.py  # 技能归一化（别名 + AI 缓存）
+│   │   ├── skill_match.py       # 技能匹配与加权评分
 │   │   ├── project_extractor.py # 项目经验提取
-│   │   └── resume_analyzer.py   # 终局 AI 分析（含流式）
+│   │   └── resume_analyzer.py   # 终局 AI 分析（含流式 Markdown + JSON 双模式）
 │   ├── utils/
-│   │   ├── json_utils.py        # JSON 安全解析
+│   │   ├── json_utils.py        # JSON 安全解析（嵌套括号提取、code block 清洗）
 │   │   ├── decorators.py        # 工具装饰器
 │   │   ├── ensure.py            # 类型安全工具
 │   │   ├── logg.py              # 日志配置
 │   │   └── skill_cache.py       # 技能处理缓存
 │   ├── web/
-│   │   └── appweb.py            # Streamlit Web 界面
+│   │   └── appweb.py            # Streamlit Web 界面（含流式渲染 + 技能可视化）
 │   └── main.py                  # 命令行入口
-├── Dockerfile                   # Docker 镜像（安全加固）
-├── docker-compose.yml           # 服务编排
+├── Dockerfile                   # Docker 镜像（安全加固，非 root 运行）
+├── docker-compose.yml           # 服务编排（api + web 分离部署）
 ├── requirements.txt             # Python 依赖
-├── .env                         # 环境变量（API Key）
+├── .env.example                 # 环境变量示例
 └── uploads/                     # 上传文件暂存目录
 ```
 
 技术栈
-类别 ：技术 
-后端框架：FastAPI 0.115
-前端界面：Streamlit 1.38
-AI 模型：DeepSeek Chat API
-文件解析：python-docx, PyPDF2, pdfplumber, Pillow, pytesseract
-容器化：Docker + Docker Compose
-运行环境：Python 3.11 
+| 类别 | 技术 |
+|------|------|
+| 后端框架 | FastAPI 0.115 |
+| 前端界面 | Streamlit 1.38 |
+| AI 模型 | DeepSeek Chat API（兼容 OpenAI SDK） |
+| 文件解析 | python-docx, PyPDF2, pdfplumber, Pillow, pytesseract |
+| 容器化 | Docker + Docker Compose |
+| 运行环境 | Python 3.11 |
 
 快速开始
 1. 环境要求
@@ -72,8 +74,9 @@ Docker & Docker Compose（可选，推荐）
 
 2. 配置 API Key
 ```bash
-# 编辑 .env 文件，填入你的 DeepSeek API Key
-DEEPSEEK_API_KEY="sk-your-api-key-here"
+# 复制示例文件，填入你的 DeepSeek API Key
+cp .env.example .env
+# 编辑 .env: DEEPSEEK_API_KEY="sk-your-api-key-here"
 ```
 
 3. 本地运行
@@ -117,17 +120,24 @@ docker compose down
 GET /ping
 ```
 
+### 服务信息
+
+```
+GET /
+```
+
 ### 简历分析
 
 ```
-POST /api/analyze
+POST /analyze
 Content-Type: multipart/form-data
 ```
 
-参数：
-   参数  : 类型 : 必填 : 说明
-  `file`: file : 必填 : 简历文件（PDF/DOCX/PNG/JPG）
-`jd_file`:file : 选填 : JD 职位描述文件（可选）
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `file` | file | 必填 | 简历文件（PDF/DOCX/PNG/JPG） |
+| `jd_file` | file | 选填 | JD 职位描述文件 |
+
 **响应示例**：
 ```json
 {
@@ -155,26 +165,47 @@ Content-Type: multipart/form-data
 
 ```
 简历文件 → 文件解析（PDF/DOCX/图片OCR）
-          ↓
-      LLM 结构化抽取（技能 / 项目 / 教育 / 经验）
-          ↓
-     技能归一化（别名映射 + AI 缓存）
-          ↓
-     匹配度评分（加权算法：技能 55% + 核心 25% + 额外 10% - 缺失 10%）
-          ↓
-     终局 AI 分析（评分 / 优劣势 / 推荐岗位 / 提升建议）
-          ↓
-      结构化报告
+              ↓
+         文本清洗（去噪、格式化）
+              ↓
+      LLM 结构化抽取（技能 / 项目 / 教育 / 经验 / 建议）
+              ↓                    ↓
+         抽取成功              抽取失败 → 本地规则兜底
+              ↓
+         技能归一化（别名映射 + AI 缓存合并）
+              ↓
+         匹配度评分（加权算法：技能匹配 + 核心覆盖 + 额外奖励 - 缺失惩罚）
+              ↓
+         终局 AI 分析（Markdown 流式 → 非流式 JSON 双模式输出）
+              ↓
+         结构化报告（6 大板块：评分 / 优势 / 弱项 / 推荐岗位 / 提升建议 / 技能摘要）
 ```
+
+> **流式模式**: Web UI 使用 Markdown 流式输出，边生成边渲染，减少等待感。完成后自动解析为结构化 Tab 展示。
+
+> **双模式输出**: 
+> - API 端点 (`POST /analyze`) 直接返回结构化 JSON
+> - Web 界面先展示流式 Markdown，再切换为交互式 Tab
+
+## Web 界面功能
+
+1. **文件上传**: 支持拖拽上传，简历 + 可选 JD 对比
+2. **技能可视化**: 彩色标签展示全部提取技能，匹配（绿）/ 额外（橙）/ 缺失（红）一目了然
+3. **分数卡片**: 大号渐变评分展示，根据分数高低自动变色
+4. **结构化 Tab**: 核心优势 / 待提升项 / 推荐岗位 / 提升建议 四栏切换
+5. **流式渲染**: AI 分析过程实时逐字展示
+6. **原始报告**: 可展开查看完整 Markdown 原文
 
 ## 配置说明
 
 | 配置项 | 位置 | 说明 |
 |--------|------|------|
-| API Key | `.env` | DeepSeek API Key |
+| API Key | `.env` | `DEEPSEEK_API_KEY` — DeepSeek API 密钥 |
 | 技能权重 | `app/config/skills_weight.py` | 各技能在匹配中的权重 |
 | 核心技能 | `app/config/skills_critical.py` | 需重点考核的核心技能列表 |
 | 技能别名 | `app/config/skill_alias.py` | 技能名称归一化映射 |
+| 技能库 | `app/config/skill_pool.py` | 自动从上述三项配置推导，无需手动维护 |
+| 技能缓存 | `app/utils/config/skill_cache.json` | AI 归一化结果持久化缓存 |
 | 最大文件大小 | `app/api/main.py` → `MAX_FILE_SIZE` | 默认 20MB |
 | 允许文件类型 | `app/api/main.py` → `ALLOWED_EXTENSIONS` | PDF/DOCX/PNG/JPG |
 | CORS 来源 | 环境变量 `CORS_ORIGINS` | 默认 `localhost:8501` |
@@ -182,10 +213,10 @@ Content-Type: multipart/form-data
 ## 安全特性
 - 非 root 用户运行（Docker）
 - 文件类型白名单校验
-- 文件大小硬限制（默认 20MB）
-- 文件名清洗防路径遍历
-- CORS 来源白名单
-- 上传文件即时清理
+- 文件大小硬限制（默认 20MB，Content-Length + 流式双重校验）
+- 文件名清洗防路径遍历（取 basename + 剥离特殊字符 + 随机前缀）
+- CORS 来源白名单（不允许泛 `*`）
+- 上传文件即时清理（finally 块保证）
 - `.env` 已加入 `.gitignore`，防止密钥泄露
 
 ## 命令行使用

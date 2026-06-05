@@ -72,23 +72,28 @@ def clean_json(text):
 
     return ""
 
-def safe_json_loads(response,fallback=None):
+def safe_json_loads(response, fallback=None):
+    """安全解析 JSON 字符串，返回 dict / list / fallback。
+
+    修复：之前仅接受 dict，导致 LLM 返回的 JSON 数组（如技能列表）
+    被错误丢弃。现在同时接受 dict 和 list。
+    """
     if fallback is None:
-        fallback={}
+        fallback = {}
     try:
         cleaned = clean_json(response)
         if not cleaned:
             logger.warning("JSON clean failed")
             return fallback
         data = json.loads(cleaned)
-        if isinstance(data,dict):
+        if isinstance(data, (dict, list)):
             return data
-        logger.warning("JSON is not dict")
+        logger.warning("JSON is not dict or list, got: %s", type(data).__name__)
         return fallback
     except json.JSONDecodeError as e:
-        logger.warning(f"JSON decode error:{e}")
-        logger.warning(f"Response:{response}")
+        logger.warning("JSON decode error: %s", e)
+        logger.warning("Response: %s", response)
         return fallback
     except Exception as e:
-        logger.exception(f"Unexpected error: {e}")
+        logger.exception("Unexpected error: %s", e)
         return fallback

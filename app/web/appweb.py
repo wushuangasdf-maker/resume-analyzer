@@ -274,28 +274,97 @@ def display_structured_tabs(analysis):
         else:
             st.info("暂无数据")
 
-    # 技能摘要
-    skills_summary = analysis.get("skills_summary") or {}
-    if skills_summary.get("matched_skills") or skills_summary.get("missing_skills"):
-        st.divider()
-        st.subheader("技能摘要")
-        sc1, sc2 = st.columns([1, 1], gap="large")
-        with sc1:
-            st.markdown("**已匹配技能**")
-            matched = skills_summary.get("matched_skills") or []
-            if matched:
-                for skill in matched:
-                    st.markdown(f"- `{skill}`")
+
+def display_skills_overview(intermediate):
+    """展示简历中提取的全部技能，按匹配状态着色"""
+    skills = intermediate.get("skills") or []
+    if not skills:
+        return
+
+    match_set = set(intermediate.get("match") or [])
+    missing_set = set(intermediate.get("missing") or [])
+    extra_set = set(intermediate.get("extra") or [])
+    has_jd = bool(intermediate.get("jd_skills"))
+
+    st.divider()
+    st.subheader("🔍 简历技能提取结果")
+    st.caption(f"从简历中共提取 {len(skills)} 项技能" + ("（与 JD 对比）" if has_jd else ""))
+
+    # 生成彩色标签
+    badges = []
+    for skill in sorted(skills):
+        if has_jd:
+            if skill in match_set:
+                # 已匹配 — 绿色
+                color = "#27ae60"
+                bg = "#eafaf1"
+                label = "✅ 匹配"
+            elif skill in extra_set:
+                # 简历有但 JD 不需要 — 橙色
+                color = "#e67e22"
+                bg = "#fef5e7"
+                label = "📌 额外"
             else:
-                st.caption("暂无")
-        with sc2:
-            st.markdown("**缺失技能**")
-            missing = skills_summary.get("missing_skills") or []
-            if missing:
-                for skill in missing:
-                    st.markdown(f"- `{skill}`")
-            else:
-                st.caption("暂无")
+                # 默认蓝
+                color = "#2980b9"
+                bg = "#eaf2f8"
+                label = ""
+        else:
+            # 无 JD 时统一蓝色
+            color = "#2980b9"
+            bg = "#eaf2f8"
+            label = ""
+
+        tooltip = label
+        badge = (
+            f'<span style="display:inline-block; background:{bg}; color:{color}; '
+            f'padding:4px 12px; margin:3px; border-radius:20px; font-size:0.9rem; '
+            f'border:1px solid {color}; white-space:nowrap;" '
+            f'title="{tooltip}">{skill}</span>'
+        )
+        badges.append(badge)
+
+    st.markdown(
+        '<div style="line-height:2.2;">' + "".join(badges) + "</div>",
+        unsafe_allow_html=True,
+    )
+
+    # 图例 + 缺失技能
+    if has_jd:
+        st.caption("")
+        leg_cols = st.columns([1, 1, 1, 2])
+        with leg_cols[0]:
+            st.markdown(
+                f'<span style="color:#27ae60; font-weight:bold;">●</span> '
+                f'已匹配：{len(match_set)} 项</span>',
+                unsafe_allow_html=True,
+            )
+        with leg_cols[1]:
+            st.markdown(
+                f'<span style="color:#e67e22; font-weight:bold;">●</span> '
+                f'额外技能：{len(extra_set)} 项</span>',
+                unsafe_allow_html=True,
+            )
+        with leg_cols[2]:
+            st.markdown(
+                f'<span style="color:#e74c3c; font-weight:bold;">●</span> '
+                f'缺失：{len(missing_set)} 项</span>',
+                unsafe_allow_html=True,
+            )
+
+        # 缺失技能列表（JD 要求但简历没有的）
+        if missing_set:
+            with st.expander("查看 JD 要求但简历缺失的技能"):
+                missing_badges = [
+                    f'<span style="display:inline-block; background:#fdedec; color:#e74c3c; '
+                    f'padding:4px 12px; margin:3px; border-radius:20px; font-size:0.9rem; '
+                    f'border:1px solid #e74c3c; white-space:nowrap;">{s}</span>'
+                    for s in sorted(missing_set)
+                ]
+                st.markdown(
+                    '<div style="line-height:2.2;">' + "".join(missing_badges) + "</div>",
+                    unsafe_allow_html=True,
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -378,6 +447,9 @@ if analyze_btn and resume_file:
             unsafe_allow_html=True,
         )
         st.progress(score_val / 100, text=f"综合匹配度 {score_val}%")
+
+    # ---- 技能提取总览（全部技能可视化）----
+    display_skills_overview(intermediate)
 
     display_structured_tabs(analysis)
 
