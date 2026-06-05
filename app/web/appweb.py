@@ -36,7 +36,12 @@ from app.services.llm_analyze import llm_analyze
 from app.services.skill_extractor import extract_keywords
 from app.services.skill_normalizer import normalize_integrate_skill
 from app.services.skill_match import final_score, skills_report
-from app.services.resume_analyzer import analyze_resume_v2
+from app.services.resume_analyzer import (
+    analyze_resume_v2,
+    analyze_resume_stream,
+    _parse_streamed_markdown,
+)
+from app.utils.json_utils import safe_json_loads
 
 # ---------------------------------------------------------------------------
 # 页面配置
@@ -47,59 +52,91 @@ st.set_page_config(
     layout="wide",
 )
 
+# ---- 自定义 CSS 微调 ----
+st.markdown("""
+<style>
+    /* 按钮间距 */
+    .stButton button { margin-top: 8px; }
+    /* 评分卡片样式 */
+    .score-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 16px;
+        padding: 24px;
+        text-align: center;
+        color: white;
+        margin: 16px 0;
+    }
+    .score-card .number {
+        font-size: 4rem;
+        font-weight: 800;
+        line-height: 1;
+    }
+    .score-card .unit {
+        font-size: 1.2rem;
+        opacity: 0.7;
+    }
+    /* 流式输出区域 */
+    .stream-box {
+        background: #f8f9fa;
+        border-radius: 12px;
+        padding: 20px 24px;
+        border-left: 4px solid #667eea;
+        min-height: 200px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # ---------------------------------------------------------------------------
 # 标题
 # ---------------------------------------------------------------------------
-st.title("📄 AI 简历分析器")
-st.markdown("拖拽上传简历文件，AI 自动解析并生成深度分析报告。可选对比职位描述 (JD) 获取技能匹配度评分。")
+st.title("AI 简历分析器")
+st.caption("上传简历文件，AI 自动解析并生成深度分析报告。可选对比职位描述 (JD) 获取技能匹配度评分。")
 
 # ---------------------------------------------------------------------------
 # 侧边栏
 # ---------------------------------------------------------------------------
 with st.sidebar:
-    st.header("⚙️ 分析选项")
+    st.header("分析选项")
 
     enable_jd = st.checkbox(
-        "📋 启用 JD 对比",
+        "启用 JD 对比",
         value=False,
         help="勾选后可上传职位描述文件，系统将对比简历与 JD 的技能匹配度",
     )
 
     st.divider()
-    st.caption("📌 支持格式: PDF · DOCX · PNG · JPG")
-    st.caption(f"📌 文件大小限制: {MAX_FILE_SIZE // 1024 // 1024} MB")
+    st.caption("支持格式: PDF · DOCX · PNG · JPG")
+    st.caption(f"文件大小限制: {MAX_FILE_SIZE // 1024 // 1024} MB")
 
-    if st.button("🔄 重置", use_container_width=True):
+    if st.button("重置", use_container_width=True):
         st.session_state.clear()
         st.rerun()
 
 # ---------------------------------------------------------------------------
-# 文件上传区域
+# 文件上传区域 — 简历 key 统一，切换 JD 模式无需重新上传
 # ---------------------------------------------------------------------------
 if not enable_jd:
-    # ===== 仅上传简历（不需要 JD） =====
     resume_file = st.file_uploader(
-        "📤 拖拽或点击上传简历文件",
+        "拖拽或点击上传简历文件",
         type=["pdf", "docx", "png", "jpg", "jpeg"],
         help="必选 — 支持 PDF、DOCX 和图片格式",
         key="resume_uploader",
     )
     jd_file = None
 else:
-    # ===== 简历 + JD 双文件上传 =====
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns([1, 1], gap="large")
     with col1:
         resume_file = st.file_uploader(
-            "📤 上传简历文件",
+            "上传简历文件",
             type=["pdf", "docx", "png", "jpg", "jpeg"],
             help="必选 — 简历文件",
-            key="resume_uploader_jd",
+            key="resume_uploader",
         )
     with col2:
         jd_file = st.file_uploader(
-            "📋 上传 JD 文件（可选）",
+            "上传 JD 文件（可选）",
             type=["pdf", "docx", "png", "jpg", "jpeg"],
-            help="可选 — 职位描述文件，不上传则仅分析简历本身",
+            help="可选 — 职位描述文件",
             key="jd_uploader",
         )
 
@@ -107,7 +144,7 @@ else:
 # 分析按钮
 # ---------------------------------------------------------------------------
 analyze_btn = st.button(
-    "🔍 开始分析",
+    "开始分析",
     type="primary",
     disabled=resume_file is None,
     use_container_width=True,
@@ -118,12 +155,10 @@ analyze_btn = st.button(
 # ---------------------------------------------------------------------------
 def save_uploaded(uploaded_file) -> str:
     """安全保存上传文件，返回临时文件路径。"""
-    # 大小校验
     data = uploaded_file.getvalue()
     if len(data) > MAX_FILE_SIZE:
         raise ValueError(f"文件大小超过限制 ({MAX_FILE_SIZE // 1024 // 1024}MB)")
 
-    # 安全文件名
     safe_name = _secure_filename(uploaded_file.name or "upload.tmp")
     _, ext = os.path.splitext(safe_name)
 
@@ -134,44 +169,33 @@ def save_uploaded(uploaded_file) -> str:
 
 
 def run_pipeline(resume_file, jd_file=None) -> dict:
-    """
-    完整分析流水线（与 app/api/main.py 保持一致）。
-
-    返回:
-        {code, message, data: {filename, jd_filename, analysis}}
-    """
+    """完整分析流水线。"""
     resume_path = None
     jd_path = None
 
     try:
-        # ---- 1. 保存上传文件 ----
         resume_path = save_uploaded(resume_file)
         if jd_file:
             jd_path = save_uploaded(jd_file)
 
-        # ---- 2. 解析文件文本 ----
         resume_text = parse_resume(resume_path)
         if not resume_text:
             return {"code": 400, "message": "简历内容为空或解析失败", "data": None}
 
         jd_text = parse_resume(jd_path) if jd_path else None
 
-        # ---- 3. LLM 结构化抽取 ----
         data = llm_analyze(resume_text, jd_text)
         if not isinstance(data, dict):
             data = {}
 
-        # ---- 4. 兜底技能提取 ----
         if not data.get("skills"):
             data["skills"] = extract_keywords(resume_text)
         if not data.get("jd_skills") and jd_text:
             data["jd_skills"] = extract_keywords(jd_text)
 
-        # ---- 5. 技能归一化 ----
         skills = normalize_integrate_skill(data.get("skills") or [])
         jd_skills = normalize_integrate_skill(data.get("jd_skills") or [])
 
-        # ---- 6. 技能匹配 & 评分 ----
         if jd_skills:
             match, miss, extra = skills_report(skills, jd_skills)
             score = final_score(skills, jd_skills, miss)
@@ -179,7 +203,6 @@ def run_pipeline(resume_file, jd_file=None) -> dict:
             match, miss, extra = [], [], []
             score = None
 
-        # ---- 7. 组装中间结果 ----
         intermediate = {
             "skills": skills,
             "projects": data.get("projects") or [],
@@ -191,21 +214,17 @@ def run_pipeline(resume_file, jd_file=None) -> dict:
             "summary": data.get("summary", " ") or " ",
         }
 
-        # ---- 8. 终局 AI 分析 ----
-        result = analyze_resume_v2(intermediate)
-
         return {
             "code": 200,
             "message": "success",
             "data": {
                 "filename": resume_file.name,
                 "jd_filename": jd_file.name if jd_file else None,
-                "analysis": result,
+                "intermediate": intermediate,
             },
         }
 
     finally:
-        # 清理临时文件
         for p in (resume_path, jd_path):
             if p and os.path.exists(p):
                 try:
@@ -214,77 +233,13 @@ def run_pipeline(resume_file, jd_file=None) -> dict:
                     pass
 
 
-# ---------------------------------------------------------------------------
-# 执行分析 & 展示结果
-# ---------------------------------------------------------------------------
-if analyze_btn and resume_file:
-    with st.spinner("⏳ AI 正在分析您的简历，请稍候…"):
-        try:
-            response = run_pipeline(resume_file, jd_file)
-        except Exception as exc:
-            st.error(f"❌ 分析过程出现异常: {exc}")
-            with st.expander("🔧 错误详情"):
-                st.code(traceback.format_exc())
-            st.stop()
-
-    if not response or response.get("code") != 200:
-        st.error(f"❌ 分析失败: {response.get('message', '未知错误') if response else '无响应'}")
-        st.stop()
-
-    # ===== 解析结果 =====
-    analysis = response["data"]["analysis"]
-    filename = response["data"]["filename"]
-    jd_filename = response["data"].get("jd_filename")
-
-    st.divider()
-
-    # ===== 文件信息 =====
-    if jd_filename:
-        st.caption(f"📄 简历: {filename} ｜ 📋 JD: {jd_filename}")
-    else:
-        st.caption(f"📄 简历: {filename}")
-
-    st.header("📊 分析报告")
-
-    # ===== 综合评分 =====
-    score = analysis.get("score")
-    if score is not None:
-        try:
-            score_val = int(score)
-        except (ValueError, TypeError):
-            score_val = None
-
-        if score_val is not None:
-            # 分数颜色
-            if score_val >= 80:
-                color = "#27ae60"
-            elif score_val >= 60:
-                color = "#f39c12"
-            else:
-                color = "#e74c3c"
-
-            st.markdown(
-                f"""
-                <div style="text-align:center; margin:20px 0;">
-                    <span style="font-size:3.5rem; font-weight:bold; color:{color};">{score_val}</span>
-                    <span style="font-size:1.2rem; color:#888;"> / 100</span>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-            # 进度条
-            st.progress(score_val / 100, text=f"综合匹配度 {score_val}%")
-        else:
-            # 非数字评分
-            st.info(f"💬 综合评分: {score}")
-
-    # ===== Tab 页展示详细结果 =====
+def display_structured_tabs(analysis):
+    """用 Tab 展示解析后的结构化结果"""
     tab1, tab2, tab3, tab4 = st.tabs([
-        "💪 核心优势",
-        "🔧 待提升项",
-        "🎯 推荐岗位",
-        "💡 提升建议",
+        "核心优势",
+        "待提升项",
+        "推荐岗位",
+        "提升建议",
     ])
 
     with tab1:
@@ -319,24 +274,22 @@ if analyze_btn and resume_file:
         else:
             st.info("暂无数据")
 
-    # ===== 技能摘要 =====
+    # 技能摘要
     skills_summary = analysis.get("skills_summary") or {}
-    if skills_summary:
+    if skills_summary.get("matched_skills") or skills_summary.get("missing_skills"):
         st.divider()
-        st.subheader("🔑 技能摘要")
-
-        sc1, sc2 = st.columns(2)
+        st.subheader("技能摘要")
+        sc1, sc2 = st.columns([1, 1], gap="large")
         with sc1:
-            st.markdown("**✅ 已匹配技能**")
+            st.markdown("**已匹配技能**")
             matched = skills_summary.get("matched_skills") or []
             if matched:
                 for skill in matched:
                     st.markdown(f"- `{skill}`")
             else:
                 st.caption("暂无")
-
         with sc2:
-            st.markdown("**⚠️ 缺失技能**")
+            st.markdown("**缺失技能**")
             missing = skills_summary.get("missing_skills") or []
             if missing:
                 for skill in missing:
@@ -344,6 +297,90 @@ if analyze_btn and resume_file:
             else:
                 st.caption("暂无")
 
-    # ===== 原始 JSON（折叠） =====
-    with st.expander("📋 原始分析结果 (JSON)"):
-        st.json(analysis)
+
+# ---------------------------------------------------------------------------
+# 执行分析 & 流式展示结果
+# ---------------------------------------------------------------------------
+if analyze_btn and resume_file:
+    # ===== 阶段 1：预处理 =====
+    with st.status("正在分析简历...", expanded=True) as status:
+        st.write("正在解析文件...")
+        try:
+            pipeline_result = run_pipeline(resume_file, jd_file)
+        except Exception as exc:
+            status.update(label="预处理失败", state="error")
+            st.error(f"分析过程出现异常: {exc}")
+            with st.expander("错误详情"):
+                st.code(traceback.format_exc())
+            st.stop()
+
+        if not pipeline_result or pipeline_result.get("code") != 200:
+            status.update(label="预处理失败", state="error")
+            st.error(f"分析失败: {pipeline_result.get('message', '未知错误') if pipeline_result else '无响应'}")
+            st.stop()
+
+        intermediate = pipeline_result["data"]["intermediate"]
+        filename = pipeline_result["data"]["filename"]
+        jd_filename = pipeline_result["data"].get("jd_filename")
+
+        st.write("AI 正在提取关键信息...")
+        status.update(label="AI 正在生成分析报告...", state="running")
+
+    # ===== 阶段 2：流式 AI 分析 =====
+    st.divider()
+    st.caption(f"简历: {filename}" + (f"  |  JD: {jd_filename}" if jd_filename else ""))
+
+    # 使用 container 包裹流式输出区
+    stream_container = st.container()
+    with stream_container:
+        stream_placeholder = st.empty()
+
+    stream_gen = analyze_resume_stream(intermediate)
+    full_response = ""
+
+    for token in stream_gen:
+        full_response += token
+        # 用 Markdown 渲染，章节标题自然分行
+        stream_placeholder.markdown(full_response + "▌")
+
+    # 流式完成，去掉光标
+    stream_placeholder.markdown(full_response)
+
+    # 解析 Markdown → 结构化数据
+    analysis = _parse_streamed_markdown(full_response)
+
+    # ===== 阶段 3：结构化 Tab =====
+    st.divider()
+    st.subheader("分析报告摘要")
+
+    # 分数卡片
+    score = analysis.get("score")
+    if score:
+        try:
+            score_val = int(score)
+        except (ValueError, TypeError):
+            score_val = 0
+
+        if score_val >= 80:
+            color = "#27ae60"
+        elif score_val >= 60:
+            color = "#f39c12"
+        else:
+            color = "#e74c3c"
+
+        st.markdown(
+            f"""
+            <div style="text-align:center; margin:20px 0;">
+                <span style="font-size:3.5rem; font-weight:bold; color:{color};">{score_val}</span>
+                <span style="font-size:1.2rem; color:#888;"> / 100</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.progress(score_val / 100, text=f"综合匹配度 {score_val}%")
+
+    display_structured_tabs(analysis)
+
+    # 原始文本折叠
+    with st.expander("查看完整分析原文"):
+        st.markdown(full_response)

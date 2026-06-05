@@ -26,3 +26,22 @@ def chat(prompt):
     )
     content=response.choices[0].message.content
     return content.strip() if content else ""
+
+
+def chat_stream(prompt):
+    """流式调用 LLM，逐 token 返回文本块"""
+    if not prompt or not prompt.strip():
+        yield ""
+        return
+    response = client.chat.completions.create(
+        model="deepseek-chat",
+        messages=[
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0,
+        stream=True,
+    )
+    for chunk in response:
+        content = chunk.choices[0].delta.content
+        if content:
+            yield content
