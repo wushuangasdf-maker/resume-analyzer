@@ -67,8 +67,7 @@ def clean_json(text):
         return arr.strip()
 
     # 5️⃣ debug 信息
-    print("❌ JSON clean failed raw output:")
-    print(repr(text))
+    logger.warning("JSON clean failed raw output: %s", repr(text))
 
     return ""
 

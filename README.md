@@ -18,8 +18,7 @@ AI 简历分析器 (AI Resume Analyzer)
 resume-analyzer/
 ├── app/
 │   ├── api/
-│   │   ├── main.py              # FastAPI 应用入口（v2.0，完整流水线）
-│   │   └── api.py               # 旧版 API 端点（兼容保留）
+│   │   └── main.py              # FastAPI 应用入口（v2.0，完整流水线）
 │   ├── config/
 │   │   ├── skill_pool.py        # 技能关键词库（自动从 alias+weight+critical 推导）
 │   │   ├── skill_alias.py       # 技能别名映射

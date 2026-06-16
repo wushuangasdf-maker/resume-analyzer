@@ -1,7 +1,10 @@
 from PIL import Image
 import pytesseract
+import logging
 from app.parsers.text_clean import safe_text
 from app.utils.decorators import trace
+
+logger = logging.getLogger(__name__)
 
 @trace
 def read_image(image_path):
@@ -16,4 +19,5 @@ def read_image(image_path):
         return safe_text(text)
 
     except Exception as e:
-        return {"error": dict(e)}
+        logger.warning("图片解析失败：%s", e)
+        return ""

@@ -1,7 +1,11 @@
 import json
 import logging
 import os
-CACHE_PATH=os.path.join(os.path.dirname(__file__),"config","skill_cache.json")
+
+logger = logging.getLogger(__name__)
+
+# 缓存文件放在 app/config/ 下，与其他配置文件统一管理
+CACHE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "skill_cache.json")
 def load_cache():
     try:
         with open(CACHE_PATH,"r",encoding="utf-8") as f:
@@ -24,11 +28,11 @@ def save_cache(cache):
              )
         return True
     except TypeError as e:
-        logging.error(f"Cache数据无法JSON序列化: {e}")
+        logger.error("Cache数据无法JSON序列化: %s", e)
         return False
     except PermissionError as e:
-        logging.error(f"无权限写入缓存文件: {e}")
+        logger.error("无权限写入缓存文件: %s", e)
         return False
     except Exception as e:
-        logging.error(f"未知缓存保存错误: {e}")
+        logger.error("未知缓存保存错误: %s", e)
         return False

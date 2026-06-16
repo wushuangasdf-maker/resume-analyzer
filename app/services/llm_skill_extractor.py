@@ -1,7 +1,10 @@
 import json
+import logging
 from app.services.llm_service import chat
 from app.utils.json_utils import safe_json_loads
 from app.config.skill_pool import SKILL_POOL_DISPLAY
+
+logger = logging.getLogger(__name__)
 
 def llm_extract_skills(text):
     prompt = f"""
@@ -37,5 +40,5 @@ def llm_extract_skills(text):
                 if isinstance(val, list):
                     return val
     except Exception as e:
-        print("技能兜底提取失败", e)
+        logger.error("技能兜底提取失败：%s", e)
     return []

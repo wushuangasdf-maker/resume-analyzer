@@ -1,9 +1,12 @@
 from app.services.llm_service import chat
 import json
+import logging
 from app.services.project_extractor import extract_projects
 from app.utils.json_utils import safe_json_loads, clean_json
 from app.utils.decorators import trace
 from app.utils.ensure import ensure_str
+
+logger = logging.getLogger(__name__)
 
 # 用于文本的整理，让 AI 更加精确地发挥
 @trace
@@ -53,7 +56,7 @@ def llm_analyze(user_text, jd_text=None):
     try:
       result = chat(prompt)
     except Exception as e:
-        print(f" llm调用失败：{e}")
+        logger.error("LLM 调用失败：%s", e)
         return fallback
     result = ensure_str(result)
     data = safe_json_loads(result, fallback=fallback)
@@ -66,5 +69,5 @@ def llm_analyze(user_text, jd_text=None):
         data["projects"] = extract_projects(user_text)
     return data
   except Exception as e:
-      print("LLM解析失败：",e)
+      logger.error("LLM 解析失败：%s", e)
       return fallback

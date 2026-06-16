@@ -2,27 +2,18 @@
 import streamlit as st
 import sys
 import os
-import re
 import tempfile
 import json
 import traceback
-import uuid
 
 # ---------------------------------------------------------------------------
-# 安全配置
+# 安全配置（从公共模块导入，与 api 保持一致）
 # ---------------------------------------------------------------------------
-MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
-ALLOWED_EXTENSIONS = {".pdf", ".docx", ".png", ".jpg", ".jpeg"}
-
-
-def _secure_filename(filename: str) -> str:
-    """清洗文件名，防止路径遍历攻击。"""
-    basename = os.path.basename(filename)
-    basename = re.sub(r"[^\w一-鿿.\-() ]", "_", basename)
-    if not basename or basename.startswith("."):
-        basename = "upload.tmp"
-    name, ext = os.path.splitext(basename)
-    return f"{name}_{uuid.uuid4().hex[:8]}{ext}"
+from app.utils.upload import (
+    MAX_FILE_SIZE,
+    secure_filename,
+    validate_extension,
+)
 
 # ---------------------------------------------------------------------------
 # 确保项目根在 Python 路径中（从 app/web/ 向上两级）
@@ -32,16 +23,11 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 from app.parsers.file_router import parse_resume
-from app.services.llm_analyze import llm_analyze
-from app.services.skill_extractor import extract_keywords
-from app.services.skill_normalizer import normalize_integrate_skill
-from app.services.skill_match import final_score, skills_report
+from app.services.pipeline import run_analysis_pipeline
 from app.services.resume_analyzer import (
-    analyze_resume_v2,
     analyze_resume_stream,
     _parse_streamed_markdown,
 )
-from app.utils.json_utils import safe_json_loads
 
 # ---------------------------------------------------------------------------
 # 页面配置
@@ -156,11 +142,14 @@ analyze_btn = st.button(
 def save_uploaded(uploaded_file) -> str:
     """安全保存上传文件，返回临时文件路径。"""
     data = uploaded_file.getvalue()
+    validate_extension(uploaded_file.name or "upload.tmp")
+
+    safe_name = secure_filename(uploaded_file.name or "upload.tmp")
+    _, ext = os.path.splitext(safe_name)
+
+    # Streamlit 已把文件读到内存，直接校验长度
     if len(data) > MAX_FILE_SIZE:
         raise ValueError(f"文件大小超过限制 ({MAX_FILE_SIZE // 1024 // 1024}MB)")
-
-    safe_name = _secure_filename(uploaded_file.name or "upload.tmp")
-    _, ext = os.path.splitext(safe_name)
 
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
     tmp.write(data)
@@ -169,7 +158,7 @@ def save_uploaded(uploaded_file) -> str:
 
 
 def run_pipeline(resume_file, jd_file=None) -> dict:
-    """完整分析流水线。"""
+    """完整分析流水线（委托 pipeline 模块）。"""
     resume_path = None
     jd_path = None
 
@@ -184,45 +173,15 @@ def run_pipeline(resume_file, jd_file=None) -> dict:
 
         jd_text = parse_resume(jd_path) if jd_path else None
 
-        data = llm_analyze(resume_text, jd_text)
-        if not isinstance(data, dict):
-            data = {}
-
-        if not data.get("skills"):
-            data["skills"] = extract_keywords(resume_text)
-        if not data.get("jd_skills") and jd_text:
-            data["jd_skills"] = extract_keywords(jd_text)
-
-        skills = normalize_integrate_skill(data.get("skills") or [])
-        jd_skills = normalize_integrate_skill(data.get("jd_skills") or [])
-
-        if jd_skills:
-            match, miss, extra = skills_report(skills, jd_skills)
-            score = final_score(skills, jd_skills, miss)
-        else:
-            match, miss, extra = [], [], []
-            score = None
-
-        intermediate = {
-            "skills": skills,
-            "projects": data.get("projects") or [],
-            "jd_skills": jd_skills,
-            "score": score,
-            "match": match,
-            "missing": miss,
-            "extra": extra,
-            "summary": data.get("summary", " ") or " ",
+        # 委托公共流水线
+        result = run_analysis_pipeline(resume_text, jd_text)
+        result["data"] = {
+            "filename": resume_file.name,
+            "jd_filename": jd_file.name if jd_file else None,
+            "intermediate": result["intermediate"],
         }
-
-        return {
-            "code": 200,
-            "message": "success",
-            "data": {
-                "filename": resume_file.name,
-                "jd_filename": jd_file.name if jd_file else None,
-                "intermediate": intermediate,
-            },
-        }
+        del result["intermediate"]
+        return result
 
     finally:
         for p in (resume_path, jd_path):

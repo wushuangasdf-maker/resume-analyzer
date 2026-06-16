@@ -1,24 +1,12 @@
+"""CLI 测试入口 — 快速验证流水线是否能跑通"""
 from app.parsers.file_router import parse_resume
 from app.services.llm_analyze import llm_analyze
 from app.services.skill_match import final_score, skills_report
 from app.services.skill_normalizer import normalize_integrate_skill
 from app.services.resume_analyzer import analyze_resume_v2
 from app.services.skill_extractor import extract_keywords
-from fastapi import FastAPI
-from app.api.api import router
 import json
 import traceback
-
-app=FastAPI(title="AI Resume Analyzer")
-# =========================
-# FastAPI 应用对象（Uvicorn 会寻找这个变量）
-# =========================
-app.include_router(
-    router,
-    prefix="/api",
-    tags=["Resume Analyzer"]
-)
-
 
 
 def main():

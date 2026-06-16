@@ -1,9 +1,12 @@
 import json
 import re
+import logging
 from app.services.llm_service import chat, chat_stream
 from app.utils.json_utils import clean_json, safe_json_loads
 from app.utils.decorators import trace
 from app.utils.ensure import ensure_str
+
+logger = logging.getLogger(__name__)
 
 # 默认返回结构
 FALLBACK = {
@@ -224,7 +227,7 @@ def analyze_resume_structured(data):
     try:
         response = chat(prompt)
     except Exception as e:
-        print(f"llm调用失败:{e}")
+        logger.error("LLM 调用失败：%s", e)
         fallback = dict(FALLBACK)
         fallback["weaknesses"] = ["AI分析失败"]
         return fallback
@@ -232,11 +235,10 @@ def analyze_resume_structured(data):
     return _parse_analysis_response(response, dict(FALLBACK))
 
 
-@trace
-def analyze_resume_stream(intermediate):
-    """
-    流式分析 — 逐 token yield Markdown 分析报告。
-    完成后可通过 .full_response 获取完整文本。
+class StreamingAnalysis:
+    """流式分析结果的可迭代包装器。
+
+    每个实例独立持有 full_response，多线程/协程并发安全。
 
     用法:
         gen = analyze_resume_stream(intermediate)
@@ -244,28 +246,41 @@ def analyze_resume_stream(intermediate):
             print(token, end="")
         result = _parse_streamed_markdown(gen.full_response)
     """
-    if isinstance(intermediate, dict):
-        data = intermediate
-    elif isinstance(intermediate, str):
+
+    def __init__(self, intermediate):
+        self.full_response = ""
+        # 解析输入
+        if isinstance(intermediate, dict):
+            self._data = intermediate
+        elif isinstance(intermediate, str):
+            try:
+                self._data = json.loads(intermediate)
+            except json.JSONDecodeError:
+                self._data = {}
+        else:
+            self._data = {}
+
+    def __iter__(self):
+        return self._generate()
+
+    def _generate(self):
+        prompt = _build_streaming_prompt(self._data)
         try:
-            data = json.loads(intermediate)
-        except json.JSONDecodeError:
-            data = {}
-    else:
-        data = {}
+            for token in chat_stream(prompt):
+                self.full_response += token
+                yield token
+        except Exception as e:
+            logger.error("流式 LLM 调用失败：%s", e)
+            yield "\n\n> ⚠️ AI 分析中断，请重试"
 
-    prompt = _build_streaming_prompt(data)
-    full_response = ""
 
-    try:
-        for token in chat_stream(prompt):
-            full_response += token
-            yield token
-    except Exception as e:
-        print(f"流式 LLM 调用失败: {e}")
-        yield "\n\n> ⚠️ AI 分析中断，请重试"
+@trace
+def analyze_resume_stream(intermediate):
+    """流式分析 — 返回 StreamingAnalysis 实例，逐 token yield Markdown 报告。
 
-    analyze_resume_stream.full_response = full_response
+    迭代完成后可通过 .full_response 获取完整文本，每个实例独立持有，线程安全。
+    """
+    return StreamingAnalysis(intermediate)
 
 
 def analyze_resume_v2(text):

@@ -9,67 +9,28 @@ FastAPI 简历分析服务 — 完整流水线
   POST /analyze   — 上传简历 + 可选 JD，执行完整分析流水线
 """
 
-import json
 import logging
 import os
-import re
-import shutil
-import tempfile
 import traceback
-import uuid
 from typing import Optional
 
-from fastapi import FastAPI, File, Request, UploadFile
+from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.parsers.file_router import parse_resume
-from app.services.llm_analyze import llm_analyze
+from app.services.pipeline import run_analysis_pipeline
 from app.services.resume_analyzer import analyze_resume_v2
-from app.services.skill_extractor import extract_keywords
-from app.services.skill_match import final_score, skills_report
-from app.services.skill_normalizer import normalize_integrate_skill
+from app.utils.upload import (
+    MAX_FILE_SIZE,
+    validate_extension,
+    secure_filename,
+)
 
 # ---------------------------------------------------------------------------
 # 安全配置
 # ---------------------------------------------------------------------------
-MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB 上传限制
-ALLOWED_EXTENSIONS = {".pdf", ".docx", ".png", ".jpg", ".jpeg"}
-# 仅内网/本地部署使用，公网请改为具体域名
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:8501,http://127.0.0.1:8501").split(",")
-
-
-def _secure_filename(filename: str) -> str:
-    """清洗文件名，防止路径遍历攻击。"""
-    # 取最后一段作为文件名，丢弃路径部分
-    basename = os.path.basename(filename)
-    # 移除非字母数字中文和 . _ - 之外的字符
-    basename = re.sub(r"[^\w一-鿿.\-() ]", "_", basename)
-    # 防止空文件名或只有扩展名
-    if not basename or basename.startswith("."):
-        basename = "upload.tmp"
-    # 加随机前缀防止冲突
-    name, ext = os.path.splitext(basename)
-    return f"{name}_{uuid.uuid4().hex[:8]}{ext}"
-
-
-def _allowed_file(filename: str) -> bool:
-    """检查文件扩展名是否在白名单中。"""
-    ext = os.path.splitext(filename)[1].lower()
-    return ext in ALLOWED_EXTENSIONS
-
-
-def _validate_file_size(upload: UploadFile) -> None:
-    """检查文件大小是否超限（通过读取内容判断，非 Content-Length）。"""
-    # 先检查 Content-Length 头（快速拒绝）
-    # FastAPI UploadFile 没有直接暴露 headers，我们从底层 starlette 对象获取
-    content_length = upload.headers.get("content-length")
-    if content_length:
-        try:
-            if int(content_length) > MAX_FILE_SIZE:
-                raise ValueError(f"文件大小超过限制 ({MAX_FILE_SIZE // 1024 // 1024}MB)")
-        except ValueError:
-            pass  # content-length 不是整数，跳过
 
 # ---------------------------------------------------------------------------
 # 应用实例
@@ -80,7 +41,7 @@ app = FastAPI(
     version="2.0.0",
 )
 
-# CORS — 仅允许可配置的来源（默认本地 Streamlit），不允泛 *
+# CORS — 仅允许可配置的来源（默认本地 Streamlit），不允许泛 *
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -93,31 +54,27 @@ app.add_middleware(
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+
 # ---------------------------------------------------------------------------
 # 辅助函数
 # ---------------------------------------------------------------------------
 def _save_upload(upload: UploadFile) -> str:
-    """安全保存上传文件：清洗文件名 + 大小校验 + 类型校验，返回绝对路径。"""
+    """安全保存上传文件：扩展名校验 + 大小校验（流式） + 文件名清洗，返回绝对路径。"""
     original_name = upload.filename or "upload.tmp"
 
-    # 1. 扩展名校验
-    if not _allowed_file(original_name):
-        raise ValueError(f"不支持的文件类型: {os.path.splitext(original_name)[1]}")
+    # 1. 扩展名校验（委托 upload 模块）
+    validate_extension(original_name)
 
-    # 2. 大小校验
-    _validate_file_size(upload)
-
-    # 3. 安全文件名（防路径遍历）
-    safe_name = _secure_filename(original_name)
+    # 2. 安全文件名（防路径遍历）
+    safe_name = secure_filename(original_name)
     dest = os.path.join(UPLOAD_DIR, safe_name)
 
-    # 4. 流式写入 + 硬大小限制
+    # 3. 流式写入 + 硬大小限制
     written = 0
     with open(dest, "wb") as f:
         while chunk := upload.file.read(8192):
             written += len(chunk)
             if written > MAX_FILE_SIZE:
-                f.close()
                 os.remove(dest)
                 raise ValueError(f"文件大小超过限制 ({MAX_FILE_SIZE // 1024 // 1024}MB)")
             f.write(chunk)
@@ -173,7 +130,7 @@ async def analyze(
     1. 解析简历 & JD 文本
     2. LLM 结构化抽取（技能 / 项目 / 教育 / 经验 / 建议）
     3. 技能归一化（本地别名 + AI 缓存）
-    4. 加权匹配度评分（技能权重 70% + 核心覆盖率 20% - 缺失惩罚 10%）
+    4. 加权匹配度评分
     5. 终局 AI 分析（评分 / 优劣势 / 推荐岗位 / 提升建议）
     """
     resume_path: Optional[str] = None
@@ -196,44 +153,11 @@ async def analyze(
 
         jd_text = _safe_parse(jd_path) if jd_path else None
 
-        # ---- 3. LLM 结构化抽取（一次调用） ------------------------------------
-        logging.info("开始 LLM 结构化抽取")
-        data = llm_analyze(resume_text, jd_text)
-        if not isinstance(data, dict):
-            logging.warning("llm_analyze 返回异常类型，使用空字典兜底")
-            data = {}
+        # ---- 3. 分析流水线 ---------------------------------------------------
+        pipeline_result = run_analysis_pipeline(resume_text, jd_text)
+        intermediate = pipeline_result["intermediate"]
 
-        # ---- 4. 兜底：LLM 没抽出技能时用本地规则提取 -------------------------
-        if not data.get("skills"):
-            data["skills"] = extract_keywords(resume_text)
-        if not data.get("jd_skills") and jd_text:
-            data["jd_skills"] = extract_keywords(jd_text)
-
-        # ---- 5. 技能归一化 ---------------------------------------------------
-        skills = normalize_integrate_skill(data.get("skills") or [])
-        jd_skills = normalize_integrate_skill(data.get("jd_skills") or [])
-
-        # ---- 6. 技能匹配 & 评分 ----------------------------------------------
-        if jd_skills:
-            match, miss, extra = skills_report(skills, jd_skills)
-            score = final_score(skills, jd_skills, miss)
-        else:
-            match, miss, extra = [], [], []
-            score = None
-
-        # ---- 7. 组装中间结果 -------------------------------------------------
-        intermediate = {
-            "skills": skills,
-            "projects": data.get("projects") or [],
-            "jd_skills": jd_skills,
-            "score": score,
-            "match": match,
-            "missing": miss,
-            "extra": extra,
-            "summary": data.get("summary", " ") or " ",
-        }
-
-        # ---- 8. 终局 AI 分析 -------------------------------------------------
+        # ---- 4. 终局 AI 分析 -------------------------------------------------
         logging.info("开始终局 AI 分析")
         result = analyze_resume_v2(intermediate)
         logging.info("分析完成")
