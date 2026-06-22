@@ -7,10 +7,10 @@ AI 简历分析器 (AI Resume Analyzer)
 3. 智能技能抽取: LLM 结构化抽取 + 本地技能库兜底，确保技能识别全面准确
 4. 技能归一化: 别名映射 + AI 缓存双重归一路径，将技能名称标准化
 5. 加权匹配评分: 技能匹配度 + 核心覆盖率 + 额外技能奖励 - 缺失惩罚，多维评分避免失真
-6. 深度分析报告: AI 生成 Markdown 结构化报告，包含综合评分、核心优势、待提升项、推荐岗位、提升建议、技能摘要六大板块
-7. 双界面选择: FastAPI REST API（适合集成）+ Streamlit Web UI（适合直接使用）
-8. 流式输出: Web 界面实时流式展示 AI 分析过程，Markdown 逐字渲染，减少等待枯燥感
-9. 安全加固: 文件类型校验、大小限制、路径遍历防护、CORS 白名单、非 root 容器运行
+6. 深度分析报告: AI 生成 Markdown 结构化报告（含流式输出），覆盖综合评分、核心优势、待提升项、推荐岗位、提升建议、技能摘要六大板块
+7. 共用分析流水线: pipeline 模块统一编排，API 与 Web 共享同一分析逻辑，避免代码重复
+8. 双界面: FastAPI REST API（适合集成）+ Streamlit Web UI（流式渲染，适合直接使用）
+9. 安全加固: 上传模块统一安全策略，文件类型校验、大小限制、路径遍历防护、CORS 白名单、非 root 容器运行
 10. Docker 部署: 前后端分离编排，一键启动，非 root 用户运行
 
 项目结构
@@ -18,12 +18,13 @@ AI 简历分析器 (AI Resume Analyzer)
 resume-analyzer/
 ├── app/
 │   ├── api/
-│   │   └── main.py              # FastAPI 应用入口（v2.0，完整流水线）
+│   │   └── main.py              # FastAPI 应用入口（v2.0.0，完整流水线）
 │   ├── config/
 │   │   ├── skill_pool.py        # 技能关键词库（自动从 alias+weight+critical 推导）
 │   │   ├── skill_alias.py       # 技能别名映射
 │   │   ├── skills_weight.py     # 技能权重配置
-│   │   └── skills_critical.py   # 核心技能配置
+│   │   ├── skills_critical.py   # 核心技能配置
+│   │   └── skill_cache.json     # AI 归一化结果持久化缓存
 │   ├── parsers/
 │   │   ├── file_router.py       # 文件类型路由
 │   │   ├── pdf_parser.py        # PDF 解析
@@ -31,27 +32,30 @@ resume-analyzer/
 │   │   ├── image_parser.py      # 图片 OCR 解析
 │   │   └── text_clean.py        # 文本清洗
 │   ├── services/
+│   │   ├── pipeline.py          # 分析流水线整合（API/Web 共用入口）
 │   │   ├── llm_service.py       # LLM 调用（DeepSeek，含 chat + chat_stream）
 │   │   ├── llm_analyze.py       # LLM 结构化抽取（技能/项目/教育/经验）
 │   │   ├── llm_skill_extractor.py # AI 技能提取
-│   │   ├── skill_extractor.py   # 技能提取整合（LLM + 本地规则）
+│   │   ├── skill_extractor.py   # 技能提取整合（LLM + 本地规则兜底）
 │   │   ├── skill_normalizer.py  # 技能归一化（别名 + AI 缓存）
 │   │   ├── skill_match.py       # 技能匹配与加权评分
 │   │   ├── project_extractor.py # 项目经验提取
-│   │   └── resume_analyzer.py   # 终局 AI 分析（含流式 Markdown + JSON 双模式）
+│   │   └── resume_analyzer.py   # 终局 AI 分析（流式 Markdown + JSON 双模式）
 │   ├── utils/
+│   │   ├── upload.py            # 上传安全工具（扩展名校验/大小限制/文件名清洗）
 │   │   ├── json_utils.py        # JSON 安全解析（嵌套括号提取、code block 清洗）
+│   │   ├── pasers_utils.py      # 文本清洗与压缩（去噪/截断）
+│   │   ├── skill_cache.py       # 技能缓存读写
 │   │   ├── decorators.py        # 工具装饰器
 │   │   ├── ensure.py            # 类型安全工具
-│   │   ├── logg.py              # 日志配置
-│   │   └── skill_cache.py       # 技能处理缓存
+│   │   └── logg.py              # 日志配置
 │   ├── web/
-│   │   └── appweb.py            # Streamlit Web 界面（含流式渲染 + 技能可视化）
+│   │   └── appweb.py            # Streamlit Web 界面（流式渲染 + 技能可视化）
 │   └── main.py                  # 命令行入口
 ├── Dockerfile                   # Docker 镜像（安全加固，非 root 运行）
 ├── docker-compose.yml           # 服务编排（api + web 分离部署）
 ├── requirements.txt             # Python 依赖
-├── .env.example                 # 环境变量示例
+├── .env                         # 环境变量配置（需自行创建）
 └── uploads/                     # 上传文件暂存目录
 ```
 
@@ -73,9 +77,9 @@ Docker & Docker Compose（可选，推荐）
 
 2. 配置 API Key
 ```bash
-# 复制示例文件，填入你的 DeepSeek API Key
-cp .env.example .env
-# 编辑 .env: DEEPSEEK_API_KEY="sk-your-api-key-here"
+# 在项目根目录创建 .env 文件，填入你的 DeepSeek API Key
+echo 'DEEPSEEK_API_KEY="sk-your-api-key-here"' > .env
+# 或直接编辑 .env 文件
 ```
 
 3. 本地运行
@@ -186,6 +190,8 @@ Content-Type: multipart/form-data
 > - API 端点 (`POST /analyze`) 直接返回结构化 JSON
 > - Web 界面先展示流式 Markdown，再切换为交互式 Tab
 
+> **共用流水线**: API 与 Web 复用同一 `run_analysis_pipeline()`，保证分析逻辑一致且安全策略统一。
+
 ## Web 界面功能
 
 1. **文件上传**: 支持拖拽上传，简历 + 可选 JD 对比
@@ -204,14 +210,14 @@ Content-Type: multipart/form-data
 | 核心技能 | `app/config/skills_critical.py` | 需重点考核的核心技能列表 |
 | 技能别名 | `app/config/skill_alias.py` | 技能名称归一化映射 |
 | 技能库 | `app/config/skill_pool.py` | 自动从上述三项配置推导，无需手动维护 |
-| 技能缓存 | `app/utils/config/skill_cache.json` | AI 归一化结果持久化缓存 |
-| 最大文件大小 | `app/api/main.py` → `MAX_FILE_SIZE` | 默认 20MB |
-| 允许文件类型 | `app/api/main.py` → `ALLOWED_EXTENSIONS` | PDF/DOCX/PNG/JPG |
+| 技能缓存 | `app/config/skill_cache.json` | AI 归一化结果持久化缓存（自动生成） |
+| 最大文件大小 | `app/utils/upload.py` → `MAX_FILE_SIZE` | 默认 20MB |
+| 允许文件类型 | `app/utils/upload.py` → `ALLOWED_EXTENSIONS` | PDF/DOCX/PNG/JPG |
 | CORS 来源 | 环境变量 `CORS_ORIGINS` | 默认 `localhost:8501` |
 
 ## 安全特性
 - 非 root 用户运行（Docker）
-- 文件类型白名单校验
+- 文件类型白名单校验（`app/utils/upload.py` 统一管理）
 - 文件大小硬限制（默认 20MB，Content-Length + 流式双重校验）
 - 文件名清洗防路径遍历（取 basename + 剥离特殊字符 + 随机前缀）
 - CORS 来源白名单（不允许泛 `*`）
