@@ -209,9 +209,13 @@ def _parse_analysis_response(response: str, fallback: dict) -> dict:
     result = safe_json_loads(response, fallback=fallback)
     if not isinstance(result, dict):
         return fallback
+    # 安全转换 score：LLM 可能返回字符串 ("85")、浮点数 (85.5) 或无法解析的值
     try:
-        result["score"] = max(0, min(100, result["score"]))
-    except Exception:
+        raw = result.get("score", 0)
+        score = float(raw) if not isinstance(raw, (int, float)) else raw
+        result["score"] = max(0, min(100, int(round(score))))
+    except (TypeError, ValueError):
+        # raw 为 None / "N/A" / 不可解析的字符串时，安全回退到 0
         result["score"] = 0
     return result
 

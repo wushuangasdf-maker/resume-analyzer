@@ -10,24 +10,24 @@ from app.utils.ensure import ensure_str
 @trace
 def normalize_local_skill(skills):
     if not skills:
-        return [],[]
+        return [], []
     local_normal = set()
-    unknow = []
+    unknown = []
     for skill in skills:
         key = skill.lower().strip()
         if key in skill_alias:
             local_normal.add(skill_alias[key])
         else:
-            unknow.append(skill)
-    return  list(local_normal),unknow
+            unknown.append(skill)
+    return list(local_normal), unknown
 
 @trace
-def normalize_ai_skill(unkonw_skill):
-   if not unkonw_skill:
+def normalize_ai_skill(unknown_skill):
+   if not unknown_skill:
        return []
-   normalized_input=[
+   normalized_input = [
        s.lower().strip()
-       for s in unkonw_skill
+       for s in unknown_skill
        if s and s.strip()
    ]
    if not normalized_input:

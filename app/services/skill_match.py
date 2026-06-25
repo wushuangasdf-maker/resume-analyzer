@@ -7,8 +7,10 @@ import traceback
 #经行职业匹配度评分,外加权重
 @trace
 def calculate_score(user_skills,job_skills,weights=None):
-    user_set=set(user_skills) or []
-    job_set=set(job_skills) or []
+    # 修复：空 set 是 falsy，set([]) or [] 会退化为 list。
+    # 正确做法是先把 None 转为空列表，再构建集合。
+    user_set = set(user_skills or [])
+    job_set = set(job_skills or [])
     if not job_set:
         return 0.0
     if weights is None:
@@ -26,19 +28,20 @@ def calculate_score(user_skills,job_skills,weights=None):
     return round(score,2)
 #经行核心技能的覆盖率计算
 @trace
-def critical_coverage(user_skills,critical_skills=None):
-    #经行防None处理
-    user_skills=user_skills or []
+def critical_coverage(user_skills, critical_skills=None):
+    # 防 None：先安全化为列表再构建集合，避免 set(None) → TypeError
+    user_skills = user_skills or []
     if critical_skills is None:
-        critical_skills=CRITICAL_SKILLS
-    critical_skills=critical_skills or []
-    # 经行防None处理
-    if not  critical_skills:
+        critical_skills = CRITICAL_SKILLS
+    critical_skills = critical_skills or []
+
+    if not critical_skills:
         return 100.0
     if not user_skills:
         return 0.0
-    user_set=set(user_skills)
-    critical_set=set(critical_skills)
+
+    user_set = set(user_skills)
+    critical_set = set(critical_skills)
 
     matched=user_set&critical_set
     score =len(matched)/len(critical_set)*100
@@ -78,9 +81,10 @@ def calculate_missing(missing, job_skills, weights=None):
 
 #技能的是否匹配的提示
 @trace
-def skills_report(user_skills,job_skills):
-    user_set = set(user_skills)
-    job_set = set(job_skills)
+def skills_report(user_skills, job_skills):
+    # 防 None：set(None) 会抛 TypeError
+    user_set = set(user_skills or [])
+    job_set = set(job_skills or [])
 
     matched = sorted(list(user_set & job_set))
     missing = sorted(list(job_set - user_set))
